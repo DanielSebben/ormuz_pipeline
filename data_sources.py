@@ -32,18 +32,24 @@ WATCHLIST: dict[str, dict[str, str]] = {
         "wti": "CL=F",
         "gas_natural": "NG=F",
         "ouro": "GC=F",
+        "prata": "SI=F",
     },
     "cambio": {
         "usd_brl": "BRL=X",
         "usd_jpy": "JPY=X",
+        "eur_usd": "EURUSD=X",
     },
     "acoes": {
         "petrobras": "PETR4.SA",
+        "vale": "VALE3.SA",
         "exxon": "XOM",
+        "chevron": "CVX",
         "ibovespa": "^BVSP",
+        "sp500": "^GSPC",
+        "delta": "DAL",       # substitui GOLL4.SA (deslistada em mar/2026) -- aerea estavel, cobre "companhias_aereas"
+        "lockheed": "LMT",       # cobre a categoria "defesa" do impact_model
     },
 }
-
 # Mapa reverso (nome do ativo -> categoria), usado para filtrar o snapshot.
 ASSET_CATEGORY = {name: cat for cat, group in WATCHLIST.items() for name in group}
 
@@ -71,26 +77,24 @@ class MarketSnapshot:
     errors: dict = field(default_factory=dict)
 
 
-def get_oil_price_eia(api_key: str, series_id: str = "PET.RBRTE.D") -> dict | None:
-    """
-    Busca o preco spot de petroleo na API v2 da EIA.
-
-    series_id padrao = Brent spot price, diario (RBRTE = Europe Brent Spot Price FOB).
-    Troque para 'PET.RWTC.D' para WTI (Cushing, Oklahoma).
-    Requer uma chave gratuita: https://www.eia.gov/opendata/register.php
-    """
+def get_oil_price_eia(api_key: str, series_id: str = "PET.RBRTE.D", retries: int = 2) -> dict | None:
     url = f"{EIA_BASE_URL}/seriesid/{series_id}"
-    try:
-        resp = requests.get(url, params={"api_key": api_key}, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-        rows = data.get("response", {}).get("data", [])
-        if not rows:
-            return None
-        latest = rows[0]
-        return {"date": latest.get("period"), "value_usd_bbl": latest.get("value")}
-    except requests.RequestException as exc:
-        return {"error": str(exc)}
+    last_error = None
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.get(url, params={"api_key": api_key}, timeout=25)
+            resp.raise_for_status()
+            data = resp.json()
+            rows = data.get("response", {}).get("data", [])
+            if not rows:
+                return None
+            latest = rows[0]
+            return {"date": latest.get("period"), "value_usd_bbl": latest.get("value")}
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt < retries:
+                time.sleep(2)
+    return {"error": str(last_error)}
 
 
 def get_yfinance_snapshot(tickers: dict[str, str] | None = None) -> dict:
