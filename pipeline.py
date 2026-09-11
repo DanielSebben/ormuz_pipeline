@@ -40,6 +40,7 @@ def run_once() -> dict:
     load_dotenv()
     eia_key = os.getenv("EIA_API_KEY")
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    gemini_key = os.getenv("GEMINI_API_KEY")
 
     market = build_market_snapshot(eia_api_key=eia_key)
     gdelt = build_gdelt_signal(timespan_headlines="1h", timespan_timeline="7d")
@@ -47,7 +48,7 @@ def run_once() -> dict:
     classified = []
     max_tier = 0
     if not gdelt.error:
-        classified = classify_headlines(gdelt.headlines, anthropic_api_key=anthropic_key)
+        classified = classify_headlines(gdelt.headlines, anthropic_api_key=anthropic_key, gemini_api_key=gemini_key)
         tiers = [c["classification"].tier for c in classified]
         max_tier = max(tiers, default=0)
 

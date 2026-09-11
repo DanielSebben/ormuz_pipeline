@@ -18,6 +18,7 @@ Tiers de severidade (calibrados nos eventos de 2026 discutidos):
 from __future__ import annotations
 
 import json
+import requests
 from dataclasses import dataclass
 
 RULES: dict[int, list[str]] = {
@@ -98,18 +99,49 @@ def classify_with_claude(title: str, api_key: str, model: str = "claude-sonnet-4
         # Se o parsing falhar, mantenha o resultado das regras em vez de quebrar o pipeline.
         return Classification(tier=0, matched_keywords=[], source="llm_parse_failed", rationale=raw_text)
 
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
+
+
+def classify_with_gemini(title: str, api_key: str) -> Classification:
+    """
+    Refinamento via Gemini (Google) -- gratuito de verdade, nao e
+    credito de teste que expira. Cadastro em aistudio.google.com,
+    sem cartao de credito.
+    """
+    payload = {
+        "contents": [{"parts": [{"text": f"{LLM_SYSTEM_PROMPT}\n\nTitulo: {title}"}]}],
+        "generationConfig": {"temperature": 0},
+    }
+    resp = requests.post(f"{GEMINI_API_URL}?key={api_key}", json=payload, timeout=20)
+    resp.raise_for_status()
+    data = resp.json()
+    try:
+        raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
+        cleaned = raw_text.strip().strip("`").replace("json\n", "").strip()
+        parsed = json.loads(cleaned)
+        return Classification(
+            tier=int(parsed["tier"]), matched_keywords=[], source="gemini", rationale=parsed.get("rationale")
+        )
+    except (KeyError, IndexError, json.JSONDecodeError, ValueError):
+        return Classification(tier=0, matched_keywords=[], source="gemini_parse_failed", rationale=str(data)[:200])
 
 def classify_headlines(
-    headlines: list[dict], anthropic_api_key: str | None = None, llm_threshold: int = 2
+    headlines: list[dict],
+    anthropic_api_key: str | None = None,
+    gemini_api_key: str | None = None,
+    llm_threshold: int = 2,
 ) -> list[dict]:
     """Aplica a classificacao a uma lista de manchetes (dicts com chave 'title')."""
     results = []
     for h in headlines:
         rule_result = classify_headline_rule_based(h.get("title", ""))
         final = rule_result
-        if anthropic_api_key and rule_result.tier >= llm_threshold:
+        if rule_result.tier >= llm_threshold:
             try:
-                final = classify_with_claude(h["title"], anthropic_api_key)
+                if gemini_api_key:
+                    final = classify_with_gemini(h["title"], gemini_api_key)
+                elif anthropic_api_key:
+                    final = classify_with_claude(h["title"], anthropic_api_key)
             except Exception:
                 final = rule_result  # cai para o resultado de regras se a chamada LLM falhar
         results.append({**h, "classification": final})
