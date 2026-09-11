@@ -29,7 +29,8 @@ from gdelt_client import build_gdelt_signal
 from impact_model import estimate_impact, run_monte_carlo
 from notifier import dispatch_alert
 
-LOG_PATH = os.path.join(os.path.dirname(__file__), "signal_log.jsonl")
+LOG_FILENAME = "signal_log.jsonl" if os.getenv("GITHUB_ACTIONS") == "true" else "signal_log.local.jsonl"
+LOG_PATH = os.path.join(os.path.dirname(__file__), LOG_FILENAME)
 
 # Tier minimo para disparar notificacao (0-4, ver event_classifier.py).
 # 2 = ja avisa em ameaca/incidente nao confirmado; 3 = so em ataque confirmado pra diante.
